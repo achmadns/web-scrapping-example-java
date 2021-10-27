@@ -28,8 +28,7 @@ public class WebScrappingExample {
         final String baseUrl = "https://www.tokopedia.com/p/handphone-tablet/handphone?page=";
         final int targetLink = 100;
         try (WebClient webClient = new WebClient(FIREFOX)) {
-            webClient.getOptions().setRedirectEnabled(true);
-            webClient.getOptions().setCssEnabled(true);
+            webClient.getOptions().setCssEnabled(false);
             webClient.getOptions().setJavaScriptEnabled(false);
             webClient.setAjaxController(new NicelyResynchronizingAjaxController());
             webClient.getOptions().setThrowExceptionOnFailingStatusCode(false);
@@ -38,13 +37,13 @@ public class WebScrappingExample {
             int currentPage = 1;
             final String redirectionBaseUrl = "https://ta.tokopedia.com";
             final String outputFileName = "output.csv";
+            Files.write(Paths.get(outputFileName), "".getBytes());
             HtmlPage page = null;
             List<?> anchors = null;
             HtmlAnchor anchor = null;
             try {
                 page = webClient.getPage(baseUrl + currentPage);
                 System.out.println("Page Title: " + page.getTitleText());
-                Files.write(Paths.get(outputFileName), "".getBytes());
                 while (phoneLinks.size() < targetLink) {
                     anchors = page.getByXPath("//a[@class='css-89jnbj']");
                     for (int i = 0; i < anchors.size(); i++) {
@@ -58,6 +57,11 @@ public class WebScrappingExample {
                     currentPage++;
                 }
                 assertThat(phoneLinks).hasSizeGreaterThanOrEqualTo(targetLink);
+            } catch (IOException e) {
+                System.out.println("An error occurred: " + e);
+            }
+            assertThat(phoneLinks).hasSizeGreaterThanOrEqualTo(targetLink);
+            try {
                 String name = null;
                 String description = null;
                 String imageLink = null;
@@ -87,11 +91,13 @@ public class WebScrappingExample {
                     }
                 }
                 webClient.getCurrentWindow().getJobManager().removeAllJobs();
-                assertThat(new File(outputFileName)).exists().isNotEmpty();
-                assertThat(Files.readAllLines(Paths.get(outputFileName))).hasSize(101);
             } catch (IOException | InterruptedException e) {
                 System.out.println("An error occurred: " + e);
             }
+            assertThat(new File(outputFileName)).exists().isNotEmpty();
+            assertThat(Files.readAllLines(Paths.get(outputFileName))).hasSize(101);
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 

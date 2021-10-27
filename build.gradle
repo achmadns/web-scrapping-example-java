@@ -18,25 +18,11 @@ repositories {
 	mavenCentral()
 }
 
-ext {
-	set('testcontainersVersion', "1.16.0")
-}
-
 dependencies {
-	implementation 'org.springframework.boot:spring-boot-starter-webflux'
 	implementation('net.sourceforge.htmlunit:htmlunit:2.54.0')
-	compileOnly 'org.projectlombok:lombok'
-	annotationProcessor 'org.projectlombok:lombok'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
-	testImplementation 'io.projectreactor:reactor-test'
-	testImplementation 'org.testcontainers:junit-jupiter'
 }
 
-dependencyManagement {
-	imports {
-		mavenBom "org.testcontainers:testcontainers-bom:${testcontainersVersion}"
-	}
-}
 
 test {
 	useJUnitPlatform()
