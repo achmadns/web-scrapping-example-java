@@ -20,6 +20,7 @@ repositories {
 
 dependencies {
 	implementation('net.sourceforge.htmlunit:htmlunit:2.54.0')
+	implementation 'com.github.chrisvest:stormpot:3.1'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
 
