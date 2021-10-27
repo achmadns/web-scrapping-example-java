@@ -7,7 +7,6 @@ import com.gargoylesoftware.htmlunit.javascript.background.JavaScriptJobManager;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.RepeatedTest;
-import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import stormpot.Pool;
@@ -87,11 +86,6 @@ public class WebScrappingExample {
                     try (WebClientPoolable webClientPoolable = webClientPool.claim(new Timeout(10, TimeUnit.SECONDS))) {
                         final WebClient webClient = webClientPoolable.getWebClient();
                         HtmlPage page = webClient.getPage(productLink);
-                        webClient.waitForBackgroundJavaScriptStartingBefore(10000);
-                        JavaScriptJobManager manager = page.getEnclosingWindow().getJobManager();
-                        while (manager.getJobCount() > 0) {
-                            Thread.sleep(1000);
-                        }
                         return String.format("\"%s\",%s,%s,\"%s\",%s,\"%s\",%s\n",
                                 ((HtmlHeading1) page.getByXPath("//h1[@class='css-1wtrxts']").get(0)).asNormalizedText(),
                                 ((DomAttr) ((HtmlMeta) page.getHead().getByXPath("//meta[@itemprop='ratingValue']").get(0)).getByXPath("@content").get(0))
