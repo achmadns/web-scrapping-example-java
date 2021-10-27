@@ -1,9 +1,7 @@
 package com.example.scrapping;
 
-import com.gargoylesoftware.htmlunit.NicelyResynchronizingAjaxController;
 import com.gargoylesoftware.htmlunit.WebClient;
 import com.gargoylesoftware.htmlunit.html.*;
-import com.gargoylesoftware.htmlunit.javascript.background.JavaScriptJobManager;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.RepeatedTest;
@@ -22,105 +20,110 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 
-import static com.gargoylesoftware.htmlunit.BrowserVersion.FIREFOX;
 import static java.net.URLDecoder.decode;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class WebScrappingExample {
-    private final Logger log = LoggerFactory.getLogger(WebScrappingExample.class);
+    public static final int TARGET_LINK = 100;
+    private static final Logger log = LoggerFactory.getLogger(WebScrappingExample.class);
 
     @RepeatedTest(3)
-    public void scrappingShouldSuccess() throws IOException {
+    public void scrappingShouldSuccess() throws IOException, InterruptedException {
         final ArrayList<String> phoneLinks = new ArrayList<>();
-        final String baseUrl = "https://www.tokopedia.com/p/handphone-tablet/handphone?page=";
-        final int targetLink = 100;
-        final String redirectionBaseUrl = "https://ta.tokopedia.com";
-        int currentPage = 1;
-        final String outputFileName = "output.csv";
-        try (WebClient webClient = new WebClient(FIREFOX)) {
-            webClient.getOptions().setCssEnabled(false);
-            webClient.getOptions().setJavaScriptEnabled(false);
-            webClient.setAjaxController(new NicelyResynchronizingAjaxController());
-            webClient.getOptions().setThrowExceptionOnFailingStatusCode(false);
-            webClient.getOptions().setThrowExceptionOnScriptError(false);
-            webClient.getOptions().setPrintContentOnFailingStatusCode(true);
-            Files.write(Paths.get(outputFileName), "".getBytes());
-            HtmlPage page = null;
-            List<?> anchors = null;
-            HtmlAnchor anchor = null;
-            try {
-                page = webClient.getPage(baseUrl + currentPage);
-                log.info("Page Title: " + page.getTitleText());
-                while (phoneLinks.size() < targetLink) {
-                    anchors = page.getByXPath("//a[@class='css-89jnbj']");
-                    for (int i = 0; i < anchors.size(); i++) {
-                        anchor = (HtmlAnchor) anchors.get(i);
-                        String link = anchor.getHrefAttribute();
-                        phoneLinks.add(link);
-                        if (phoneLinks.size() >= targetLink) break;
-                    }
-                    currentPage++;
-                }
-                assertThat(phoneLinks).hasSizeGreaterThanOrEqualTo(targetLink);
-            } catch (IOException e) {
-                log.error("An error occurred: " + e);
-            }
-            assertThat(phoneLinks).hasSizeGreaterThanOrEqualTo(targetLink);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        final CountDownLatch latch = new CountDownLatch(targetLink);
-        final Pool<WebClientPoolable> webClientPool = Pool.from(new WebClientPoolableAllocator()).build();
-        final ExecutorService executors = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+        final int availableProcessor = Runtime.getRuntime().availableProcessors();
+        final Pool<WebClientPoolable> webClientPool = Pool.from(new WebClientPoolableAllocator())
+                .setSize(availableProcessor).build();
+        final ExecutorService executors = Executors.newFixedThreadPool(availableProcessor);
         final ExecutorService singleThreadExecutor = Executors.newSingleThreadExecutor();
-        try (FileWriter recipesFile = new FileWriter(outputFileName, true)) {
-            recipesFile.write("Name, Rating (out of 5), Price, Merchant/Store Name, Image Link, Description, Original Link\n");
-            for (String link : phoneLinks) {
-                log.info("Scrapping: " + link);
-                if (link.startsWith(redirectionBaseUrl)) {
-                    link = extractAndDecodeProductLink(link);
-                    log.info("Extracted link: " + link);
-                }
-                final String productLink = link;
-                CompletableFuture.supplyAsync(() -> {
-                    try (WebClientPoolable webClientPoolable = webClientPool.claim(new Timeout(10, TimeUnit.SECONDS))) {
-                        final WebClient webClient = webClientPoolable.getWebClient();
-                        HtmlPage page = webClient.getPage(productLink);
-                        return String.format("\"%s\",%s,%s,\"%s\",%s,\"%s\",%s\n",
-                                ((HtmlHeading1) page.getByXPath("//h1[@class='css-1wtrxts']").get(0)).asNormalizedText(),
-                                ((DomAttr) ((HtmlMeta) page.getHead().getByXPath("//meta[@itemprop='ratingValue']").get(0)).getByXPath("@content").get(0))
-                                        .getTextContent(),
-                                ((HtmlDivision) page.getByXPath("//div[@class='price']").get(0)).getVisibleText(),
-                                StringUtils.substringBetween(page.getBody().asXml(), "\"shopName\":\"", "\",\"minOrder\""),
-                                ((HtmlImage) page.getByXPath("//img[@class='success fade']").get(0)).getSrc(),
-                                ((HtmlDivision) page.getByXPath("//div[@data-testid='lblPDPDescriptionProduk']").get(0))
-                                        .getVisibleText().replace("\n", "\\n"), productLink);
-
-                    } catch (InterruptedException | IOException e) {
-                        log.error("An error occurred: " + e);
-                        return "N/A";
-                    }
-                }, executors).thenAcceptAsync(row -> {
-                    try {
-                        recipesFile.write(row);
-                        latch.countDown();
-                    } catch (IOException e) {
-                        log.error("An error occurred: " + e);
-                    }
-                }, singleThreadExecutor);
-            }
-            latch.await(10, TimeUnit.MINUTES);
-        } catch (IOException | InterruptedException e) {
-            log.error("An error occurred: " + e);
+        final CountDownLatch latch = new CountDownLatch(TARGET_LINK);
+        final String redirectionBaseUrl = "https://ta.tokopedia.com";
+        final String outputFileName = "output.csv";
+        collectPhoneLinks(phoneLinks, webClientPool);
+        try (FileWriter outputFile = new FileWriter(outputFileName)) {
+//            Files.write(Paths.get(outputFileName), "".getBytes());
+            outputFile.write("Name, Rating (out of 5), Price, Merchant/Store Name, Image Link, Description, Original Link\n");
+            phoneLinks.forEach(link -> extractInformation(latch, webClientPool, executors, singleThreadExecutor, outputFile,
+                    link.startsWith(redirectionBaseUrl) ? extractAndDecodeProductLink(link) : link));
+            assertThat(latch.await(10, TimeUnit.MINUTES)).isTrue();
+        } catch (IOException e) {
+            log.error("An error occurred when processing product links: " + e);
         }
         assertThat(new File(outputFileName)).exists().isNotEmpty();
         assertThat(Files.readAllLines(Paths.get(outputFileName))).hasSize(101);
     }
 
+    private void extractInformation(CountDownLatch latch, Pool<WebClientPoolable> webClientPool, ExecutorService executors,
+                                    ExecutorService singleThreadExecutor, FileWriter recipesFile, String productLink) {
+        log.info("Scrapping: " + productLink);
+        CompletableFuture.supplyAsync(() -> {
+            try (WebClientPoolable webClientPoolable = claimWebClient(webClientPool)) {
+                final WebClient webClient = webClientPoolable.getWebClient();
+                HtmlPage page = webClient.getPage(productLink);
+                return String.format("\"%s\",%s,%s,\"%s\",%s,\"%s\",%s\n",
+                        ((HtmlHeading1) page.getByXPath("//h1[@class='css-1wtrxts']").get(0)).asNormalizedText(),
+                        ((DomAttr) ((HtmlMeta) page.getHead().getByXPath("//meta[@itemprop='ratingValue']").get(0))
+                                .getByXPath("@content").get(0)).getTextContent(),
+                        ((HtmlDivision) page.getByXPath("//div[@class='price']").get(0)).getVisibleText(),
+                        StringUtils.substringBetween(page.getBody().asXml(), "\"shopName\":\"", "\",\"minOrder\""),
+                        ((HtmlImage) page.getByXPath("//img[@class='success fade']").get(0)).getSrc(),
+                        ((HtmlDivision) page.getByXPath("//div[@data-testid='lblPDPDescriptionProduk']").get(0))
+                                .getVisibleText().replace("\n", "\\n"), productLink);
+
+            } catch (InterruptedException | IOException e) {
+                log.error("An error occurred when scrapping product page: ", e);
+                return "N/A";
+            }
+        }, executors).thenAcceptAsync(row -> {
+            try {
+                recipesFile.write(row);
+                latch.countDown();
+            } catch (IOException e) {
+                log.error("An error occurred when writing the output: ", e);
+            }
+        }, singleThreadExecutor);
+    }
+
+    private void collectPhoneLinks(ArrayList<String> phoneLinks, Pool<WebClientPoolable> webClientPool) {
+        int currentPage = 1;
+        final String baseUrl = "https://www.tokopedia.com/p/handphone-tablet/handphone?page=";
+        try (WebClientPoolable webClientPoolable = claimWebClient(webClientPool)) {
+            final WebClient webClient = webClientPoolable.getWebClient();
+            HtmlPage page;
+            List<?> anchors;
+            HtmlAnchor anchor;
+            try {
+                while (phoneLinks.size() < TARGET_LINK) {
+                    final String currentUrl = baseUrl + currentPage;
+                    page = webClient.getPage(currentUrl);
+                    log.info("Page Title: " + page.getTitleText() + "; " + currentUrl);
+                    anchors = page.getByXPath("//a[@class='css-89jnbj']");
+                    for (Object o : anchors) {
+                        anchor = (HtmlAnchor) o;
+                        String link = anchor.getHrefAttribute();
+                        phoneLinks.add(link);
+                        if (phoneLinks.size() >= TARGET_LINK) break;
+                    }
+                    currentPage++;
+                }
+            } catch (IOException e) {
+                log.error("An error occurred when listing down the product links: ", e);
+            }
+        } catch (InterruptedException e) {
+            log.error("An error occurred when using webclient: ", e);
+        }
+        assertThat(phoneLinks).hasSizeGreaterThanOrEqualTo(TARGET_LINK);
+    }
+
+    private WebClientPoolable claimWebClient(Pool<WebClientPoolable> webClientPool) throws InterruptedException {
+        return webClientPool.claim(new Timeout(10, TimeUnit.SECONDS));
+    }
+
     static String extractAndDecodeProductLink(String link) {
-        String substring = link.substring(link.indexOf("r=") + 2);
-        return decode(!substring.contains("&") ? substring : substring.substring(0, substring.indexOf("&")),
-                StandardCharsets.UTF_8);
+        final String substring = link.substring(link.indexOf("r=") + 2);
+        final String extractedLink = decode(!substring.contains("&") ? substring :
+                substring.substring(0, substring.indexOf("&")), StandardCharsets.UTF_8);
+        log.debug("Extracted link: " + extractedLink);
+        return extractedLink;
     }
 
     @AfterEach
