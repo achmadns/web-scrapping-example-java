@@ -21,6 +21,10 @@ repositories {
 dependencies {
 	implementation('net.sourceforge.htmlunit:htmlunit:2.54.0')
 	implementation 'com.github.chrisvest:stormpot:3.1'
+	implementation 'io.vavr:vavr:0.10.4'
+//	implementation 'org.seleniumhq.selenium:selenium-java:4.0.0'
+//	implementation 'org.seleniumhq.selenium:selenium-firefox-driver:4.0.0'
+//	implementation 'org.seleniumhq.selenium:selenium-chrome-driver:4.0.0'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
 

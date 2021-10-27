@@ -2,6 +2,7 @@ package com.example.scrapping;
 
 import com.gargoylesoftware.htmlunit.WebClient;
 import com.gargoylesoftware.htmlunit.html.*;
+import io.vavr.control.Try;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.RepeatedTest;
@@ -26,8 +27,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class WebScrappingExample {
     public static final int TARGET_LINK = 100;
     private static final Logger log = LoggerFactory.getLogger(WebScrappingExample.class);
+    public static final String NOT_AVAILABLE = "N/A";
 
-    @RepeatedTest(3)
+    @RepeatedTest(1)
     public void scrappingShouldSuccess() throws IOException, InterruptedException {
         final ArrayList<String> phoneLinks = new ArrayList<>();
         final int availableProcessor = Runtime.getRuntime().availableProcessors();
@@ -40,11 +42,10 @@ public class WebScrappingExample {
         final String outputFileName = "output.csv";
         collectPhoneLinks(phoneLinks, webClientPool);
         try (FileWriter outputFile = new FileWriter(outputFileName)) {
-//            Files.write(Paths.get(outputFileName), "".getBytes());
             outputFile.write("Name, Rating (out of 5), Price, Merchant/Store Name, Image Link, Description, Original Link\n");
             phoneLinks.forEach(link -> extractInformation(latch, webClientPool, executors, singleThreadExecutor, outputFile,
                     link.startsWith(redirectionBaseUrl) ? extractAndDecodeProductLink(link) : link));
-            assertThat(latch.await(10, TimeUnit.MINUTES)).isTrue();
+            assertThat(latch.await(1, TimeUnit.MINUTES)).isTrue();
         } catch (IOException e) {
             log.error("An error occurred when processing product links: " + e);
         }
@@ -53,25 +54,33 @@ public class WebScrappingExample {
     }
 
     private void extractInformation(CountDownLatch latch, Pool<WebClientPoolable> webClientPool, ExecutorService executors,
-                                    ExecutorService singleThreadExecutor, FileWriter recipesFile, String productLink) {
-        log.info("Scrapping: " + productLink);
+                                    ExecutorService singleThreadExecutor, FileWriter recipesFile, final String productLink) {
         CompletableFuture.supplyAsync(() -> {
             try (WebClientPoolable webClientPoolable = claimWebClient(webClientPool)) {
+                log.info("Scrapping: " + productLink);
                 final WebClient webClient = webClientPoolable.getWebClient();
                 HtmlPage page = webClient.getPage(productLink);
-                return String.format("\"%s\",%s,%s,\"%s\",%s,\"%s\",%s\n",
-                        ((HtmlHeading1) page.getByXPath("//h1[@class='css-1wtrxts']").get(0)).asNormalizedText(),
-                        ((DomAttr) ((HtmlMeta) page.getHead().getByXPath("//meta[@itemprop='ratingValue']").get(0))
-                                .getByXPath("@content").get(0)).getTextContent(),
-                        ((HtmlDivision) page.getByXPath("//div[@class='price']").get(0)).getVisibleText(),
-                        StringUtils.substringBetween(page.getBody().asXml(), "\"shopName\":\"", "\",\"minOrder\""),
-                        ((HtmlImage) page.getByXPath("//img[@class='success fade']").get(0)).getSrc(),
-                        ((HtmlDivision) page.getByXPath("//div[@data-testid='lblPDPDescriptionProduk']").get(0))
-                                .getVisibleText().replace("\n", "\\n"), productLink);
+                log.debug("Loaded: " + productLink);
+                final String row = String.format("\"%s\",%s,%s,\"%s\",%s,\"%s\",%s\n",
+                        Try.of(() -> ((HtmlHeading1) page.getByXPath("//h1[@class='css-1wtrxts']").get(0))
+                                .asNormalizedText()).getOrElse(NOT_AVAILABLE),
+                        Try.of(() -> ((DomAttr) ((HtmlMeta) page.getHead().getByXPath("//meta[@itemprop='ratingValue']")
+                                .get(0)).getByXPath("@content").get(0)).getTextContent()).getOrElse(NOT_AVAILABLE),
+                        Try.of(() -> ((HtmlDivision) page.getByXPath("//div[@class='price']").get(0))
+                                .getVisibleText()).getOrElse(NOT_AVAILABLE),
+                        Try.of(() -> StringUtils.substringBetween(page.getBody().asXml(), "\"shopName\":\"", "\",\"minOrder\""))
+                                .getOrElse(NOT_AVAILABLE),
+                        Try.of(() -> ((HtmlImage) page.getByXPath("//img[@class='success fade']").get(0)).getSrc())
+                                .getOrElse(NOT_AVAILABLE),
+                        Try.of(() -> ((HtmlDivision) page.getByXPath("//div[@data-testid='lblPDPDescriptionProduk']").get(0))
+                                .getVisibleText().replace("\n", "\\n")).getOrElse(NOT_AVAILABLE)
+                        , productLink);
+                log.debug("Scrapped: " + productLink);
+                return row;
 
             } catch (InterruptedException | IOException e) {
                 log.error("An error occurred when scrapping product page: ", e);
-                return "N/A";
+                return NOT_AVAILABLE;
             }
         }, executors).thenAcceptAsync(row -> {
             try {
@@ -95,14 +104,18 @@ public class WebScrappingExample {
                 while (phoneLinks.size() < TARGET_LINK) {
                     final String currentUrl = baseUrl + currentPage;
                     page = webClient.getPage(currentUrl);
+                    webClient.getCurrentWindow().setInnerHeight(60000);
+                    Thread.sleep(1000);
                     log.info("Page Title: " + page.getTitleText() + "; " + currentUrl);
                     anchors = page.getByXPath("//a[@class='css-89jnbj']");
+                    log.debug("Anchor size: " + anchors.size());
                     for (Object o : anchors) {
                         anchor = (HtmlAnchor) o;
                         String link = anchor.getHrefAttribute();
                         phoneLinks.add(link);
                         if (phoneLinks.size() >= TARGET_LINK) break;
                     }
+                    log.debug("Phone links size: " + phoneLinks.size());
                     currentPage++;
                 }
             } catch (IOException e) {
@@ -115,7 +128,7 @@ public class WebScrappingExample {
     }
 
     private WebClientPoolable claimWebClient(Pool<WebClientPoolable> webClientPool) throws InterruptedException {
-        return webClientPool.claim(new Timeout(10, TimeUnit.SECONDS));
+        return webClientPool.claim(new Timeout(3, TimeUnit.SECONDS));
     }
 
     static String extractAndDecodeProductLink(String link) {
