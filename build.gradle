@@ -24,7 +24,7 @@ ext {
 
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-webflux'
-	implementation('net.sourceforge.htmlunit:htmlunit:2.51.0')
+	implementation('net.sourceforge.htmlunit:htmlunit:2.54.0')
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
