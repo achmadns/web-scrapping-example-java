@@ -5,9 +5,9 @@ import com.gargoylesoftware.htmlunit.WebClient;
 import com.gargoylesoftware.htmlunit.html.*;
 import com.gargoylesoftware.htmlunit.javascript.background.JavaScriptJobManager;
 import org.apache.commons.lang3.StringUtils;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvFileSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import stormpot.Pool;
@@ -22,7 +22,6 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
-import java.util.regex.Pattern;
 
 import static com.gargoylesoftware.htmlunit.BrowserVersion.FIREFOX;
 import static java.net.URLDecoder.decode;
@@ -31,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class WebScrappingExample {
     private final Logger log = LoggerFactory.getLogger(WebScrappingExample.class);
 
-    @Test
+    @RepeatedTest(3)
     public void scrappingShouldSuccess() throws IOException {
         final ArrayList<String> phoneLinks = new ArrayList<>();
         final String baseUrl = "https://www.tokopedia.com/p/handphone-tablet/handphone?page=";
@@ -59,6 +58,7 @@ public class WebScrappingExample {
                         anchor = (HtmlAnchor) anchors.get(i);
                         String link = anchor.getHrefAttribute();
                         phoneLinks.add(link);
+                        if (phoneLinks.size() >= targetLink) break;
                     }
                     currentPage++;
                 }
@@ -123,32 +123,15 @@ public class WebScrappingExample {
         assertThat(Files.readAllLines(Paths.get(outputFileName))).hasSize(101);
     }
 
-    private String extractAndDecodeProductLink(String link) {
+    static String extractAndDecodeProductLink(String link) {
         String substring = link.substring(link.indexOf("r=") + 2);
         return decode(!substring.contains("&") ? substring : substring.substring(0, substring.indexOf("&")),
                 StandardCharsets.UTF_8);
     }
 
-    @Test
-    public void keepNewLineOnFile() throws IOException {
-        Files.write(Paths.get("newline.csv"), "a\nb".replace("\n", "\\n").getBytes());
-        assertThat(Files.readAllLines(Paths.get("newline.csv"))).hasSize(1);
-    }
-
-    @Test
-    public void extractShopNameFromBodyShouldSuccess() {
-        final String body = "\"shopID\":\"342169\",\"shopName\":\"Gudang-HP\",\"minOrder\":1,\"maxOrder\":14,\"weight\":500";
-        final Pattern pattern = Pattern.compile("\"shopName\":\"(.*?)\",\"minOrder\"");
-        final String shopName = StringUtils.substringBetween(body, "\"shopName\":\"", "\",\"minOrder\"");
-//        final String shopName = pattern.matcher(body).results().findFirst().get().group(0);
-        assertThat(shopName).isEqualTo("Gudang-HP");
-    }
-
-
-    @ParameterizedTest
-    @CsvFileSource(resources = "/url-cases.csv", numLinesToSkip = 1)
-    public void extractProductLinkFromClickableLink(String expectedLink, String completeLink) {
-        assertThat(extractAndDecodeProductLink(completeLink)).isEqualTo(expectedLink);
+    @AfterEach
+    public void afterEachTest() throws Exception {
+        Thread.sleep(3000);
     }
 
 }
