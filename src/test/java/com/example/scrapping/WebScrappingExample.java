@@ -29,7 +29,7 @@ public class WebScrappingExample {
     private static final Logger log = LoggerFactory.getLogger(WebScrappingExample.class);
     public static final String NOT_AVAILABLE = "N/A";
 
-    @RepeatedTest(1)
+    @RepeatedTest(3)
     public void scrappingShouldSuccess() throws IOException, InterruptedException {
         final ArrayList<String> phoneLinks = new ArrayList<>();
         final int availableProcessor = Runtime.getRuntime().availableProcessors();
@@ -104,8 +104,6 @@ public class WebScrappingExample {
                 while (phoneLinks.size() < TARGET_LINK) {
                     final String currentUrl = baseUrl + currentPage;
                     page = webClient.getPage(currentUrl);
-                    webClient.getCurrentWindow().setInnerHeight(60000);
-                    Thread.sleep(1000);
                     log.info("Page Title: " + page.getTitleText() + "; " + currentUrl);
                     anchors = page.getByXPath("//a[@class='css-89jnbj']");
                     log.debug("Anchor size: " + anchors.size());
