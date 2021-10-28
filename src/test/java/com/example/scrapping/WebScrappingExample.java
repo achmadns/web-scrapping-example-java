@@ -1,11 +1,13 @@
 package com.example.scrapping;
 
-import com.gargoylesoftware.htmlunit.WebClient;
-import com.gargoylesoftware.htmlunit.html.*;
 import io.vavr.control.Try;
-import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.RepeatedTest;
+import org.junit.jupiter.api.RepetitionInfo;
+import org.openqa.selenium.By;
+import org.openqa.selenium.JavascriptExecutor;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.WebElement;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import stormpot.Pool;
@@ -30,20 +32,20 @@ public class WebScrappingExample {
     public static final String NOT_AVAILABLE = "N/A";
 
     @RepeatedTest(3)
-    public void scrappingShouldSuccess() throws IOException, InterruptedException {
+    public void scrappingShouldSuccess(RepetitionInfo repetitionInfo) throws IOException, InterruptedException {
         final ArrayList<String> phoneLinks = new ArrayList<>();
-        final int availableProcessor = Runtime.getRuntime().availableProcessors();
-        final Pool<WebClientPoolable> webClientPool = Pool.from(new WebClientPoolableAllocator())
-                .setSize(availableProcessor).build();
-        final ExecutorService executors = Executors.newFixedThreadPool(availableProcessor);
+        final int allocatedWorkerCount = Runtime.getRuntime().availableProcessors() / 2;
+        final ExecutorService executors = Executors.newFixedThreadPool(allocatedWorkerCount);
         final ExecutorService singleThreadExecutor = Executors.newSingleThreadExecutor();
         final CountDownLatch latch = new CountDownLatch(TARGET_LINK);
         final String redirectionBaseUrl = "https://ta.tokopedia.com";
-        final String outputFileName = "output.csv";
-        collectPhoneLinks(phoneLinks, webClientPool);
+        final String outputFileName = "output-" + repetitionInfo.getCurrentRepetition() + ".csv";
+        collectPhoneLinks(phoneLinks);
+        final Pool<WebDriverPoolable> webDrivePool = Pool.from(new WebDriverAllocator())
+                .setSize(allocatedWorkerCount).build();
         try (FileWriter outputFile = new FileWriter(outputFileName)) {
-            outputFile.write("Name, Rating (out of 5), Price, Merchant/Store Name, Image Link, Description, Original Link\n");
-            phoneLinks.forEach(link -> extractInformation(latch, webClientPool, executors, singleThreadExecutor, outputFile,
+            outputFile.write("Rating (out of 5), Price, Name, Merchant/Store Name, Image Link, Description, Product Link\n");
+            phoneLinks.forEach(link -> extractInformation(latch, webDrivePool, executors, singleThreadExecutor, outputFile,
                     link.startsWith(redirectionBaseUrl) ? extractAndDecodeProductLink(link) : link));
             assertThat(latch.await(1, TimeUnit.MINUTES)).isTrue();
         } catch (IOException e) {
@@ -51,34 +53,35 @@ public class WebScrappingExample {
         }
         assertThat(new File(outputFileName)).exists().isNotEmpty();
         assertThat(Files.readAllLines(Paths.get(outputFileName))).hasSize(101);
+        webDrivePool.shutdown().await(new Timeout(1, TimeUnit.MINUTES));
     }
 
-    private void extractInformation(CountDownLatch latch, Pool<WebClientPoolable> webClientPool, ExecutorService executors,
+    private void extractInformation(CountDownLatch latch, Pool<WebDriverPoolable> webClientPool, ExecutorService executors,
                                     ExecutorService singleThreadExecutor, FileWriter recipesFile, final String productLink) {
         CompletableFuture.supplyAsync(() -> {
-            try (WebClientPoolable webClientPoolable = claimWebClient(webClientPool)) {
+            try (WebDriverPoolable webDriverPoolable = claimWebDriver(webClientPool)) {
                 log.info("Scrapping: " + productLink);
-                final WebClient webClient = webClientPoolable.getWebClient();
-                HtmlPage page = webClient.getPage(productLink);
+                final WebDriver driver = webDriverPoolable.driver();
+                driver.get(productLink);
                 log.debug("Loaded: " + productLink);
-                final String row = String.format("\"%s\",%s,%s,\"%s\",%s,\"%s\",%s\n",
-                        Try.of(() -> ((HtmlHeading1) page.getByXPath("//h1[@class='css-1wtrxts']").get(0))
-                                .asNormalizedText()).getOrElse(NOT_AVAILABLE),
-                        Try.of(() -> ((DomAttr) ((HtmlMeta) page.getHead().getByXPath("//meta[@itemprop='ratingValue']")
-                                .get(0)).getByXPath("@content").get(0)).getTextContent()).getOrElse(NOT_AVAILABLE),
-                        Try.of(() -> ((HtmlDivision) page.getByXPath("//div[@class='price']").get(0))
-                                .getVisibleText()).getOrElse(NOT_AVAILABLE),
-                        Try.of(() -> StringUtils.substringBetween(page.getBody().asXml(), "\"shopName\":\"", "\",\"minOrder\""))
+                final String row = String.format("%s,%s,\"%s\",\"%s\",%s,\"%s\",%s\n",
+                        Try.of(() -> driver.findElements(By.xpath("//span[@data-testid='lblPDPDetailProductRatingNumber']"))
+                                .get(0).getText()).getOrElse(NOT_AVAILABLE),
+                        Try.of(() -> driver.findElements(By.xpath("//div[@class='price']")).get(0).getText())
                                 .getOrElse(NOT_AVAILABLE),
-                        Try.of(() -> ((HtmlImage) page.getByXPath("//img[@class='success fade']").get(0)).getSrc())
+                        Try.of(() -> driver.findElements(By.xpath("//h1[@class='css-1wtrxts']")).get(0).getText())
                                 .getOrElse(NOT_AVAILABLE),
-                        Try.of(() -> ((HtmlDivision) page.getByXPath("//div[@data-testid='lblPDPDescriptionProduk']").get(0))
-                                .getVisibleText().replace("\n", "\\n")).getOrElse(NOT_AVAILABLE)
-                        , productLink);
+                        Try.of(() -> driver.findElements(By.xpath("//a[@data-testid='llbPDPFooterShopName']"))
+                                .get(0).findElements(By.xpath("./child::h2")).get(0).getText()).getOrElse(NOT_AVAILABLE),
+                        Try.of(() -> driver.findElements(By.xpath("//img[@class='success fade']")).get(0)
+                                .getAttribute("src")).getOrElse(NOT_AVAILABLE),
+                        Try.of(() -> driver.findElements(By.xpath("//div[@data-testid='lblPDPDescriptionProduk']"))
+                                .get(0).getText().replace("\n", "\\n")).getOrElse(NOT_AVAILABLE),
+                        productLink);
                 log.debug("Scrapped: " + productLink);
                 return row;
 
-            } catch (InterruptedException | IOException e) {
+            } catch (InterruptedException e) {
                 log.error("An error occurred when scrapping product page: ", e);
                 return NOT_AVAILABLE;
             }
@@ -92,41 +95,32 @@ public class WebScrappingExample {
         }, singleThreadExecutor);
     }
 
-    private void collectPhoneLinks(ArrayList<String> phoneLinks, Pool<WebClientPoolable> webClientPool) {
+    private void collectPhoneLinks(ArrayList<String> phoneLinks) {
         int currentPage = 1;
         final String baseUrl = "https://www.tokopedia.com/p/handphone-tablet/handphone?page=";
-        try (WebClientPoolable webClientPoolable = claimWebClient(webClientPool)) {
-            final WebClient webClient = webClientPoolable.getWebClient();
-            HtmlPage page;
-            List<?> anchors;
-            HtmlAnchor anchor;
-            try {
-                while (phoneLinks.size() < TARGET_LINK) {
-                    final String currentUrl = baseUrl + currentPage;
-                    page = webClient.getPage(currentUrl);
-                    log.info("Page Title: " + page.getTitleText() + "; " + currentUrl);
-                    anchors = page.getByXPath("//a[@class='css-89jnbj']");
-                    log.debug("Anchor size: " + anchors.size());
-                    for (Object o : anchors) {
-                        anchor = (HtmlAnchor) o;
-                        String link = anchor.getHrefAttribute();
-                        phoneLinks.add(link);
-                        if (phoneLinks.size() >= TARGET_LINK) break;
-                    }
-                    log.debug("Phone links size: " + phoneLinks.size());
-                    currentPage++;
-                }
-            } catch (IOException e) {
-                log.error("An error occurred when listing down the product links: ", e);
+        final WebDriver driver = WebDriverAllocator.allocate();
+        while (phoneLinks.size() < TARGET_LINK) {
+            final String currentUrl = baseUrl + currentPage;
+            driver.get(currentUrl);
+            JavascriptExecutor js = (JavascriptExecutor) driver;
+            js.executeScript("window.scrollTo(0, document.body.scrollHeight)");
+            final List<WebElement> elements = driver.findElements(By.xpath("//a[@class='css-89jnbj']"));
+            log.debug("Found product: " + elements.size());
+            for (WebElement element : elements) {
+                final String link = element.getAttribute("href");
+                log.debug(link);
+                phoneLinks.add(link);
+                if (phoneLinks.size() >= TARGET_LINK) break;
             }
-        } catch (InterruptedException e) {
-            log.error("An error occurred when using webclient: ", e);
+            log.debug("Phone links size: " + phoneLinks.size());
+            currentPage++;
         }
+        driver.quit();
         assertThat(phoneLinks).hasSizeGreaterThanOrEqualTo(TARGET_LINK);
     }
 
-    private WebClientPoolable claimWebClient(Pool<WebClientPoolable> webClientPool) throws InterruptedException {
-        return webClientPool.claim(new Timeout(3, TimeUnit.SECONDS));
+    private WebDriverPoolable claimWebDriver(Pool<WebDriverPoolable> webDriverPool) throws InterruptedException {
+        return webDriverPool.claim(new Timeout(3, TimeUnit.SECONDS));
     }
 
     static String extractAndDecodeProductLink(String link) {

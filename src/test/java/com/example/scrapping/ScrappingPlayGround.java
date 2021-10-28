@@ -1,21 +1,24 @@
 package com.example.scrapping;
 
-//import org.apache.commons.lang3.StringUtils;
-
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvFileSource;
+import org.openqa.selenium.By;
 import org.openqa.selenium.JavascriptExecutor;
-import org.openqa.selenium.PageLoadStrategy;
 import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.chrome.ChromeDriver;
-import org.openqa.selenium.chrome.ChromeOptions;
+import org.openqa.selenium.WebElement;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class ScrappingPlayGround {
+    private static final Logger log = LoggerFactory.getLogger(ScrappingPlayGround.class);
 
     @Test
     public void keepNewLineOnFile() throws IOException {
@@ -24,24 +27,24 @@ public class ScrappingPlayGround {
     }
 
 
-//    @ParameterizedTest
-//    @CsvFileSource(resources = "/url-cases.csv", numLinesToSkip = 1)
-//    public void extractProductLinkFromClickableLink(String expectedLink, String completeLink) {
-//        assertThat(WebScrappingExample.extractAndDecodeProductLink(completeLink)).isEqualTo(expectedLink);
-//    }
+    @ParameterizedTest
+    @CsvFileSource(resources = "/url-cases.csv", numLinesToSkip = 1)
+    public void extractProductLinkFromClickableLink(String expectedLink, String completeLink) {
+        assertThat(WebScrappingExample.extractAndDecodeProductLink(completeLink)).isEqualTo(expectedLink);
+    }
 
     @Test
-    public void openWebPage() throws InterruptedException {
-        System.setProperty("webdriver.chrome.driver", "/home/achmad/bin/chromedriver");
-        ChromeOptions chromeOptions = new ChromeOptions();
-        chromeOptions.setPageLoadStrategy(PageLoadStrategy.EAGER);
-        WebDriver driver = new ChromeDriver(chromeOptions);
+    public void openWebPage() {
+        WebDriver driver = WebDriverAllocator.allocate();
         JavascriptExecutor js = (JavascriptExecutor) driver;
-
-
         driver.get("https://www.tokopedia.com/p/handphone-tablet/handphone?page=1");
         //This will scroll the web page till end.
         js.executeScript("window.scrollTo(0, document.body.scrollHeight)");
+        final List<WebElement> elements = driver.findElements(By.xpath("//a[@class='css-89jnbj']"));
+        log.debug("Found product: " + elements.size());
+        for (WebElement element : elements) {
+            log.debug(element.getAttribute("href"));
+        }
         driver.quit();
     }
 }
